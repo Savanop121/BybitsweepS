@@ -286,7 +286,7 @@ class ByBit {
     async main() {
         console.log(boxen(figlet.textSync('Sweeper', { horizontalLayout: 'full' }), { padding: 1, borderColor: 'red', borderStyle: 'double' }));
 
-        const dataFile = path.join(__dirname, 'data.txt');
+        const dataFile = path.join(__dirname, 'query.txt');
         const data = fs.readFileSync(dataFile, 'utf8').split('\n').filter(Boolean);
 
         const totalGames = await this.askNumber('How many games do you want to play? ', 100);
