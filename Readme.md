@@ -73,7 +73,7 @@ Navigate to `Bin/Debug/net8.0/` and run:
 
 ## 🏃‍♂️ Running BybitsweepS Bot FOR JS
    ```
-   npm install
+   node index.js
    ```
 
 ## 📝 Logging
