@@ -70,8 +70,8 @@ class ByBit {
         } catch (error) {
             if (error.response && error.response.status === 429 && retryCount < 3) {
                 this.log("Too many requests, waiting before retrying...", "warning");
-                await this.wait(60); // Tunggu 60 detik sebelum mencoba lagi
-                return this.request(method, url, data, retryCount + 1); // Coba request ulang
+                await this.wait(60);
+                return this.request(method, url, data, retryCount + 1); 
             }
             if (error.response && error.response.status === 401 && retryCount < 1) {
                 this.log("Token might be expired. Attempting to relogin...", "warning");
@@ -189,7 +189,7 @@ class ByBit {
     }
 
     async playGame(gameNumber) {
-        const gameTime = Math.floor(Math.random() * (112 - 90 + 1)) + 90;
+        const gameTime = Math.floor(Math.random() * (120 - 90 + 1)) + 90;
         const score = Math.floor(Math.random() * (900 - 600 + 1)) + 600;
 
         this.log(`Starting game ${gameNumber} with play time of ${gameTime} seconds`, 'success');
