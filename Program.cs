@@ -193,7 +193,7 @@ class ByBit
 
         for (int batch = 0; batch < totalBatches; batch++)
         {
-            int gameTime = new Random().Next(90, 120);
+            int gameTime = new Random().Next(90, 200);
             int score = new Random().Next(600, 900);
 
             var start = await StartGameAsync();
