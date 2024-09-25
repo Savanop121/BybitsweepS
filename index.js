@@ -189,7 +189,7 @@ class ByBit {
     }
 
     async playGame(gameNumber) {
-        const gameTime = Math.floor(Math.random() * (120 - 90 + 1)) + 90;
+        const gameTime = Math.floor(Math.random() * (200 - 90 + 1)) + 90;
         const score = Math.floor(Math.random() * (900 - 600 + 1)) + 600;
 
         this.log(`Starting game ${gameNumber} with play time of ${gameTime} seconds`, 'success');
