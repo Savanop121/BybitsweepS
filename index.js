@@ -351,7 +351,7 @@ class ByBit {
     }
 
     async main() {
-        console.log(boxen(figlet.textSync('ByBit Coin Sweeper', { horizontalLayout: 'full' }), { padding: 1, borderColor: 'green', borderStyle: 'double' }));
+        console.log(boxen(figlet.textSync('Sweeper', { horizontalLayout: 'full' }), { padding: 1, borderColor: 'red', borderStyle: 'double' }));
 
         const dataFile = path.join(__dirname, 'data.txt');
         const data = fs.readFileSync(dataFile, 'utf8').split('\n').filter(Boolean);
