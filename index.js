@@ -99,7 +99,7 @@ class ByBit {
             initData: initData,
         };
 
-        this.log(`Attempting to log in with initData`, "info");
+        this.log(`Attempting to log in`, "info");
 
         const response = await this.request("POST", "api/auth/login", payload);
         if (response.success) {
