@@ -64,14 +64,16 @@ class ByBit {
     async request(method, url, data = null, retryCount = 0) {
         const headers = { ...this.headers };
         if (method === "POST" && data) headers["content-type"] = "application/json";
+        if (this.gameHash) headers["X-Game-Hash"] = this.gameHash;
+
         try {
             const response = await this.axiosInstance({ method, url, data, headers });
             return { success: true, data: response.data };
         } catch (error) {
             if (error.response && error.response.status === 429 && retryCount < 3) {
                 this.log("Too many requests, waiting before retrying...", "warning");
-                await this.wait(60);
-                return this.request(method, url, data, retryCount + 1); 
+                await this.wait(5);
+                return this.request(method, url, data, retryCount + 1);
             }
             if (error.response && error.response.status === 401 && retryCount < 1) {
                 this.log("Token might be expired. Attempting to relogin...", "warning");
@@ -148,6 +150,14 @@ class ByBit {
         const response = await this.request("POST", "api/games/start", {});
         if (response.success) {
             this.game = response.data;
+            this.log(`Game start response: ${JSON.stringify(response.data)}`, 'info');
+            if (response.data.h) {
+                this.gameHash = response.data.h;
+                this.log(`Game hash (h) received: ${this.gameHash}`, 'info');
+            } else {
+                this.gameHash = this.generateHash();
+                this.log(`No game hash (h) received. Generated hash: ${this.gameHash}`, 'info');
+            }
             return true;
         } else {
             this.log(`Failed to start game!`, "warning");
@@ -155,20 +165,43 @@ class ByBit {
         }
     }
 
+    generateHash() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+
     async win({ score, gameTime }) {
-        const response = await this.request("POST", "api/games/win", {
+        const payload = {
             bagCoins: this.game.rewards.bagCoins,
             bits: this.game.rewards.bits,
             gifts: this.game.rewards.gifts,
             gameId: this.game.id,
             score,
             gameTime,
-        });
-        if (response.success) {
-            this.game = response.data;
-            return true;
-        } else {
+            h: this.gameHash 
+        };
+
+        this.log(`Win request payload: ${JSON.stringify(payload)}`, 'info');
+
+        try {
+            const response = await this.request("POST", "api/games/win", payload);
+            if (response.success) {
+                this.game = response.data;
+                this.log(`Win response: ${JSON.stringify(response.data)}`, 'info');
+                return true;
+            } else {
+                throw new Error('Win request was not successful');
+            }
+        } catch (error) {
             this.log(`Failed game!`, "warning");
+            if (error.response) {
+                this.log(`Response status: ${error.response.status}`, "warning");
+                this.log(`Response data: ${JSON.stringify(error.response.data)}`, "warning");
+            } else {
+                this.log(`Error: ${error.message}`, "warning");
+            }
             return false;
         }
     }
@@ -193,7 +226,7 @@ class ByBit {
         const score = Math.floor(Math.random() * (900 - 600 + 1)) + 600;
 
         this.log(`Starting game ${gameNumber} with play time of ${gameTime} seconds`, 'success');
-        
+    
         const start = await this.start();
         if (!start) return { score: 0, success: false };
 
@@ -264,11 +297,20 @@ class ByBit {
                         this.log('Failed to refresh token.', 'warning');
                     }
                 }
-				
-				if (batch % 5 === 4) { 
+                
+                if (batch % 5 === 4) { 
                     await this.me(); 
-                                        
-                    console.log(colors.bold(`Updated account Score: ${this.user_info.score}`));
+
+                    const scoreUpdateBox = boxen(
+                        `Updated account Score: ${this.user_info.score}`, 
+                        {
+                            padding: 1, 
+                            borderColor: 'cyan', 
+                            borderStyle: 'round',
+                            align: 'center'
+                        }
+                    );
+                    console.log(scoreUpdateBox);
                 }
 
                 if (batch < totalBatches - 1) {
@@ -284,9 +326,9 @@ class ByBit {
     }
 
     async main() {
-        console.log(boxen(figlet.textSync('Sweeper', { horizontalLayout: 'full' }), { padding: 1, borderColor: 'red', borderStyle: 'double' }));
+        console.log(boxen(figlet.textSync('ByBit Coin Sweeper', { horizontalLayout: 'full' }), { padding: 1, borderColor: 'green', borderStyle: 'double' }));
 
-        const dataFile = path.join(__dirname, 'query.txt');
+        const dataFile = path.join(__dirname, 'data.txt');
         const data = fs.readFileSync(dataFile, 'utf8').split('\n').filter(Boolean);
 
         const totalGames = await this.askNumber('How many games do you want to play? ', 100);
