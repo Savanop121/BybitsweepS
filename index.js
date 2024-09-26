@@ -6,6 +6,7 @@ const readline = require('readline');
 const colors = require('colors');
 const figlet = require('figlet');
 const boxen = require('boxen');
+const crypto = require('crypto');
 
 class ByBit {
     constructor() {
@@ -64,14 +65,16 @@ class ByBit {
     async request(method, url, data = null, retryCount = 0) {
         const headers = { ...this.headers };
         if (method === "POST" && data) headers["content-type"] = "application/json";
+        if (this.gameHash) headers["X-Game-Hash"] = this.gameHash;
+
         try {
             const response = await this.axiosInstance({ method, url, data, headers });
             return { success: true, data: response.data };
         } catch (error) {
             if (error.response && error.response.status === 429 && retryCount < 3) {
                 this.log("Too many requests, waiting before retrying...", "warning");
-                await this.wait(5); 
-                return this.request(method, url, data, retryCount + 1); 
+                await this.wait(5);
+                return this.request(method, url, data, retryCount + 1);
             }
             if (error.response && error.response.status === 401 && retryCount < 1) {
                 this.log("Token might be expired. Attempting to relogin...", "warning");
@@ -144,10 +147,22 @@ class ByBit {
         }
     }
 
+    generateHash(gameId) {
+        return crypto.createHash('sha256').update(gameId + Date.now().toString()).digest('hex');
+    }
+
     async start() {
         const response = await this.request("POST", "api/games/start", {});
         if (response.success) {
             this.game = response.data;
+            this.log(`Game start response: ${JSON.stringify(response.data)}`, 'info');
+            if (response.data.h) {
+                this.gameHash = response.data.h;
+                this.log(`Game hash (h) received: ${this.gameHash}`, 'info');
+            } else {
+                this.gameHash = this.generateHash(this.game.id);
+                this.log(`Generated hash: ${this.gameHash}`, 'info');
+            }
             return true;
         } else {
             this.log(`Failed to start game!`, "warning");
@@ -156,19 +171,38 @@ class ByBit {
     }
 
     async win({ score, gameTime }) {
-        const response = await this.request("POST", "api/games/win", {
+        const payload = {
             bagCoins: this.game.rewards.bagCoins,
             bits: this.game.rewards.bits,
             gifts: this.game.rewards.gifts,
             gameId: this.game.id,
-            score,
-            gameTime,
-        });
-        if (response.success) {
-            this.game = response.data;
-            return true;
-        } else {
+            score: parseFloat(score),
+            gameTime: parseInt(gameTime),
+            h: this.gameHash
+        };
+
+        this.log(`Win request payload: ${JSON.stringify(payload)}`, 'info');
+
+        try {
+            const response = await this.request("POST", "api/games/win", payload);
+            this.log(`Full win response: ${JSON.stringify(response)}`, 'info');
+            
+            if (response.success) {
+                this.game = response.data;
+                this.log(`Win response: ${JSON.stringify(response.data)}`, 'info');
+                return true;
+            } else {
+                this.log(`Win request was not successful. Response: ${JSON.stringify(response)}`, 'warning');
+                return false;
+            }
+        } catch (error) {
             this.log(`Failed game!`, "warning");
+            if (error.response) {
+                this.log(`Response status: ${error.response.status}`, "warning");
+                this.log(`Response data: ${JSON.stringify(error.response.data)}`, "warning");
+            } else {
+                this.log(`Error: ${error.message}`, "warning");
+            }
             return false;
         }
     }
@@ -189,11 +223,16 @@ class ByBit {
     }
 
     async playGame(gameNumber) {
-        const gameTime = Math.floor(Math.random() * (200 - 90 + 1)) + 90;
-        const score = Math.floor(Math.random() * (900 - 600 + 1)) + 600;
+        const minGameTime = 60; // Minimum 60 seconds
+        const maxGameTime = 180; // Maximum 3 minutes
+        const gameTime = Math.floor(Math.random() * (maxGameTime - minGameTime + 1)) + minGameTime;
+        
+        const minScore = 100;
+        const maxScore = 500;
+        const score = (Math.random() * (maxScore - minScore) + minScore).toFixed(5);
 
         this.log(`Starting game ${gameNumber} with play time of ${gameTime} seconds`, 'success');
-        
+
         const start = await this.start();
         if (!start) return { score: 0, success: false };
 
@@ -202,7 +241,7 @@ class ByBit {
         const winResult = await this.win({ gameTime, score });
         if (winResult) {
             this.log(`Game ${gameNumber} completed, score: ${score}`, 'success');
-            return { score, success: true };
+            return { score: parseFloat(score), success: true };
         } else {
             this.log(`Game ${gameNumber} failed`, 'warning');
             return { score: 0, success: false };
@@ -225,11 +264,16 @@ class ByBit {
         if (infoResult) {
             this.log(`Processing account for ${this.user_info.firstName}`, 'info');
             let totalScore = 0;
+            let localScore = 0;
             let successCount = 0;
             let failureCount = 0;
 
             const batchSize = 1; 
             const totalBatches = Math.ceil(numberOfGames / batchSize);
+
+            let lastServerScore = this.user_info.score;
+            let unchangedScoreCount = 0;
+            const maxUnchangedScores = 5; 
 
             for (let batch = 0; batch < totalBatches; batch++) {
                 const spinner = ora(`Playing batch ${batch + 1} of ${totalBatches}...`).start();
@@ -245,13 +289,14 @@ class ByBit {
                     const results = await Promise.all(gameTasks);
                     results.forEach(res => {
                         totalScore += res.score;
+                        localScore += res.score;
                         if (res.success) {
                             successCount++;
                         } else {
                             failureCount++;
                         }
                     });
-                    spinner.succeed(`Batch ${batch + 1} completed. Total Score: ${totalScore}, Successes: ${successCount}, Failures: ${failureCount}`);
+                    spinner.succeed(`Batch ${batch + 1} completed. Total Score: ${totalScore}, Local Score: ${localScore}, Successes: ${successCount}, Failures: ${failureCount}`);
                 } catch (error) {
                     spinner.fail('Error occurred during the batch.');
                     const refreshResult = await this.login(initData);
@@ -264,12 +309,24 @@ class ByBit {
                         this.log('Failed to refresh token.', 'warning');
                     }
                 }
-				
-				if (batch % 5 === 4) { 
+                
+                if (batch % 5 === 4) { 
                     await this.me(); 
 
+                    if (this.user_info.score === lastServerScore) {
+                        unchangedScoreCount++;
+                        this.log(`Warning: Server score unchanged for ${unchangedScoreCount} checks`, 'warning');
+                        if (unchangedScoreCount >= maxUnchangedScores) {
+                            this.log(`Server score hasn't increased for ${maxUnchangedScores} checks. Stopping.`, 'warning');
+                            break;
+                        }
+                    } else {
+                        unchangedScoreCount = 0;
+                        lastServerScore = this.user_info.score;
+                    }
+
                     const scoreUpdateBox = boxen(
-                        `Updated account Score: ${this.user_info.score}`, 
+                        `Updated account Score: ${this.user_info.score}\nLocal Score: ${localScore}`, 
                         {
                             padding: 1, 
                             borderColor: 'cyan', 
@@ -278,6 +335,7 @@ class ByBit {
                         }
                     );
                     console.log(scoreUpdateBox);
+                    this.log(`Server Score: ${this.user_info.score}, Local Score: ${localScore}`, 'info');
                 }
 
                 if (batch < totalBatches - 1) {
@@ -286,7 +344,7 @@ class ByBit {
                 }
             }
 
-            this.log(`Account processing completed. Total Score: ${totalScore}, Successes: ${successCount}, Failures: ${failureCount}`, 'success');
+            this.log(`Account processing completed. Total Score: ${totalScore}, Local Score: ${localScore}, Successes: ${successCount}, Failures: ${failureCount}`, 'success');
         }
 
         await this.wait(3);
