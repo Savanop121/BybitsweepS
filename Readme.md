@@ -92,7 +92,7 @@ This project is [MIT](https://github.com/ada682/BybitsweepS/blob/main/LICENSE) l
 
 slyntherinnn - [@zadkaaa](https://twitter.com/zadkaaa)
 
-Project Link: [https://github.com/ada682/blumbot](https://github.com/ada682/BybitsweepS)
+Project Link: [https://github.com/ada682/BybitsweepS](https://github.com/ada682/BybitsweepS)
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ada682/BybitsweepS/master/thank_you.gif" alt="Thank You">
