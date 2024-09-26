@@ -70,8 +70,8 @@ class ByBit {
         } catch (error) {
             if (error.response && error.response.status === 429 && retryCount < 3) {
                 this.log("Too many requests, waiting before retrying...", "warning");
-                await this.wait(5); // Tunggu 60 detik sebelum mencoba lagi
-                return this.request(method, url, data, retryCount + 1); // Coba request ulang
+                await this.wait(5); 
+                return this.request(method, url, data, retryCount + 1); 
             }
             if (error.response && error.response.status === 401 && retryCount < 1) {
                 this.log("Token might be expired. Attempting to relogin...", "warning");
