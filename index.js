@@ -7,6 +7,7 @@ const colors = require('colors');
 const figlet = require('figlet');
 const boxen = require('boxen');
 const crypto = require('crypto');
+const TelegramBot = require('node-telegram-bot-api');
 
 class ByBit {
     constructor() {
@@ -34,6 +35,86 @@ class ByBit {
             timeout: 5000,
             headers: this.headers,
         });
+        this.bot = new TelegramBot('7892944450:AAFGJHhpkqYmpgYoG2l7S1vOUKWgMg-X8lo', { polling: true });
+        this.isRunning = false;
+        this.userQueries = {};
+        this.setupBot();
+    }
+
+    setupBot() {
+        this.bot.on('polling_error', (error) => {
+            console.log(`Polling error: ${error.code}`);
+            if (error.code === 'ETELEGRAM') {
+                console.log('Telegram API error. Restarting polling...');
+                this.bot.stopPolling();
+                setTimeout(() => {
+                    this.bot.startPolling();
+                }, 5000);
+            }
+        });
+
+        this.bot.onText(/\/start/, (msg) => {
+            const chatId = msg.chat.id;
+            const message = "Welcome to ByBit Sweeper Bot!\n\n" +
+                            "1. Type /add to ADD QUERY\n" +
+                            "2. Type /reset to RESET YOUR QUERIES\n" +
+                            "3. Type /run to START YOUR QUERIES\n" +
+                            "4. Type /stop to STOP BOT\n\n" +
+                            "Please join our Telegram group: https://t.me/savanop121";
+            this.bot.sendMessage(chatId, message);
+        });
+
+        this.bot.onText(/\/add/, (msg) => {
+            const chatId = msg.chat.id;
+            this.bot.sendMessage(chatId, "Please enter the query to add:");
+            this.bot.once('message', (queryMsg) => {
+                const query = queryMsg.text;
+                this.addQuery(chatId, query);
+                this.bot.sendMessage(chatId, "Query added successfully!");
+            });
+        });
+
+        this.bot.onText(/\/reset/, (msg) => {
+            const chatId = msg.chat.id;
+            this.resetQueries(chatId);
+            this.bot.sendMessage(chatId, "Your queries have been reset.");
+        });
+
+        this.bot.onText(/\/run/, (msg) => {
+            const chatId = msg.chat.id;
+            if (!this.isRunning) {
+                this.isRunning = true;
+                this.bot.sendMessage(chatId, "Bot is starting...");
+                this.main(chatId).catch(err => {
+                    this.log(err.message, 'warning');
+                    this.bot.sendMessage(chatId, "An error occurred: " + err.message);
+                    this.isRunning = false;
+                });
+            } else {
+                this.bot.sendMessage(chatId, "Bot is already running.");
+            }
+        });
+
+        this.bot.onText(/\/stop/, (msg) => {
+            const chatId = msg.chat.id;
+            if (this.isRunning) {
+                this.isRunning = false;
+                this.bot.sendMessage(chatId, "Bot has been stopped.");
+            } else {
+                this.bot.sendMessage(chatId, "Bot is not running.");
+            }
+        });
+    }
+
+    addQuery(chatId, query) {
+        if (!this.userQueries[chatId]) {
+            this.userQueries[chatId] = [];
+        }
+        this.userQueries[chatId].push(query);
+    }
+
+    resetQueries(chatId) {
+        this.userQueries[chatId] = [];
     }
 
     log(message, type = 'info') {
@@ -248,21 +329,24 @@ class ByBit {
         }
     }
 
-    async processUser(initData, batchNumber, numberOfGames) {
-        console.log(boxen(`Batch ${batchNumber}`, { padding: 1, borderColor: 'blue', borderStyle: 'round' }));
+    async processUser(initData, batchNumber, numberOfGames, chatId) {
+        this.bot.sendMessage(chatId, `Starting Batch ${batchNumber}`);
         
         this.log(`Logging into account...`, 'success');
         const loginResult = await this.login(initData);
         if (loginResult.success) {
             this.log('Login successful!', 'success');
+            this.bot.sendMessage(chatId, 'Login successful!');
         } else {
             this.log(`Login failed: ${loginResult.error}`, 'warning');
+            this.bot.sendMessage(chatId, `Login failed: ${loginResult.error}`);
             return; 
         }
 
         const infoResult = await this.me();
         if (infoResult) {
             this.log(`Processing account for ${this.user_info.firstName}`, 'info');
+            this.bot.sendMessage(chatId, `Processing account for ${this.user_info.firstName}`);
             let totalScore = 0;
             let localScore = 0;
             let successCount = 0;
@@ -276,6 +360,10 @@ class ByBit {
             const maxUnchangedScores = 5; 
 
             for (let batch = 0; batch < totalBatches; batch++) {
+                if (!this.isRunning) {
+                    this.bot.sendMessage(chatId, "Bot has been stopped.");
+                    break;
+                }
                 const spinner = ora(`Playing batch ${batch + 1} of ${totalBatches}...`).start();
                 const startGame = batch * batchSize;
                 const endGame = Math.min(startGame + batchSize, numberOfGames);
@@ -297,16 +385,20 @@ class ByBit {
                         }
                     });
                     spinner.succeed(`Batch ${batch + 1} completed. Total Score: ${totalScore}, Local Score: ${localScore}, Successes: ${successCount}, Failures: ${failureCount}`);
+                    this.bot.sendMessage(chatId, `Batch ${batch + 1} completed. Total Score: ${totalScore}, Local Score: ${localScore}, Successes: ${successCount}, Failures: ${failureCount}`);
                 } catch (error) {
                     spinner.fail('Error occurred during the batch.');
+                    this.bot.sendMessage(chatId, 'Error occurred during the batch.');
                     const refreshResult = await this.login(initData);
                     if (refreshResult.success) {
                         this.log('Token refreshed. Retrying batch...', 'warning');
+                        this.bot.sendMessage(chatId, 'Token refreshed. Retrying batch...');
                         
                         await this.wait(4); 
                         batch--; 
                     } else {
                         this.log('Failed to refresh token.', 'warning');
+                        this.bot.sendMessage(chatId, 'Failed to refresh token.');
                     }
                 }
                 
@@ -316,8 +408,10 @@ class ByBit {
                     if (this.user_info.score === lastServerScore) {
                         unchangedScoreCount++;
                         this.log(`Warning: Server score unchanged for ${unchangedScoreCount} checks`, 'warning');
+                        this.bot.sendMessage(chatId, `Warning: Server score unchanged for ${unchangedScoreCount} checks`);
                         if (unchangedScoreCount >= maxUnchangedScores) {
                             this.log(`Server score hasn't increased for ${maxUnchangedScores} checks. Stopping.`, 'warning');
+                            this.bot.sendMessage(chatId, `Server score hasn't increased for ${maxUnchangedScores} checks. Stopping.`);
                             break;
                         }
                     } else {
@@ -336,6 +430,7 @@ class ByBit {
                     );
                     console.log(scoreUpdateBox);
                     this.log(`Server Score: ${this.user_info.score}, Local Score: ${localScore}`, 'info');
+                    this.bot.sendMessage(chatId, `Server Score: ${this.user_info.score}, Local Score: ${localScore}`);
                 }
 
                 if (batch < totalBatches - 1) {
@@ -345,32 +440,32 @@ class ByBit {
             }
 
             this.log(`Account processing completed. Total Score: ${totalScore}, Local Score: ${localScore}, Successes: ${successCount}, Failures: ${failureCount}`, 'success');
+            this.bot.sendMessage(chatId, `Account processing completed. Total Score: ${totalScore}, Local Score: ${localScore}, Successes: ${successCount}, Failures: ${failureCount}`);
         }
 
         await this.wait(3);
     }
 
-    async main() {
+    async main(chatId) {
         console.log(boxen(figlet.textSync('Sweeper', { horizontalLayout: 'full' }), { padding: 1, borderColor: 'red', borderStyle: 'double' }));
+        this.bot.sendMessage(chatId, "ByBit Sweeper Bot is starting...");
 
-        const dataFile = path.join(__dirname, 'data.txt');
-        const data = fs.readFileSync(dataFile, 'utf8').split('\n').filter(Boolean);
+        const totalGames = 100; // Default value
+        const queries = this.userQueries[chatId] || [];
+        const totalBatches = queries.length;
 
-        const totalGames = await this.askNumber('How many games do you want to play? ', 100);
-        const totalBatches = await this.askNumber('How many batches do you want to process (can only 1 batch)? ', data.length);
-        const accountsToProcess = data.slice(0, totalBatches);
-
-        for (let i = 0; i < accountsToProcess.length; i++) {
-            const initData = accountsToProcess[i];
-            await this.processUser(initData, i + 1, totalGames);
+        for (let i = 0; i < queries.length; i++) {
+            if (!this.isRunning) {
+                this.bot.sendMessage(chatId, "Bot has been stopped.");
+                break;
+            }
+            const initData = queries[i];
+            await this.processUser(initData, i + 1, totalGames, chatId);
         }
+
+        this.bot.sendMessage(chatId, "All your queries have been processed. Bot is now idle.");
+        this.isRunning = false;
     }
 }
 
-(async () => {
-    const client = new ByBit();
-    client.main().catch(err => {
-        client.log(err.message, 'warning');
-        process.exit(1);
-    });
-})();
+const bybit = new ByBit();
